@@ -128,12 +128,48 @@ def initialize_retriever():
         # OpenAI Embeddingsの初期化
         embeddings = OpenAIEmbeddings()
         
-        # Chromaデータベースの初期化（メモリ内で実行、永続化しない）
-        db = Chroma.from_documents(
-            docs, 
-            embedding=embeddings,
-            persist_directory=None  # メモリ内で実行
-        )
+        # ChromaDBとベクトル検索の初期化を試行
+        retriever = None
+        try:
+            # Chromaデータベースの初期化（Streamlit Cloud対応）
+            try:
+                # まず、より基本的な設定でChromaDBを初期化
+                import chromadb
+                from chromadb.config import Settings
+                
+                # メモリ内でのみ動作するクライアントを作成
+                chroma_client = chromadb.Client(Settings(
+                    chroma_db_impl="duckdb+parquet",
+                    persist_directory=None,
+                    anonymized_telemetry=False
+                ))
+                
+                # コレクション名を一意にするためにセッションIDを使用
+                collection_name = f"products_{st.session_state.session_id[:8]}"
+                
+                db = Chroma.from_documents(
+                    docs, 
+                    embedding=embeddings,
+                    client=chroma_client,
+                    collection_name=collection_name
+                )
+                
+            except Exception as chroma_error:
+                logger.warning(f"ChromaDB初期化エラー: {chroma_error}")
+                logger.info("代替方法でChromaDBを初期化します")
+                
+                # フォールバック：最小限の設定でChromaDBを初期化
+                db = Chroma.from_documents(
+                    docs, 
+                    embedding=embeddings
+                )
+            
+            retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
+            logger.info("ChromaDBベクトル検索の初期化が完了しました")
+            
+        except Exception as vector_error:
+            logger.error(f"ベクトル検索の初期化に失敗: {vector_error}")
+            logger.info("BM25検索のみで続行します")
 
         retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
 
@@ -145,15 +181,25 @@ def initialize_retriever():
         )
         
         # Ensemble Retrieverの作成
-        ensemble_retriever = EnsembleRetriever(
-            retrievers=[bm25_retriever, retriever],
-            weights=ct.RETRIEVER_WEIGHTS
-        )
+        if retriever:
+            # ChromaDBが正常に動作している場合
+            ensemble_retriever = EnsembleRetriever(
+                retrievers=[bm25_retriever, retriever],
+                weights=ct.RETRIEVER_WEIGHTS
+            )
+            logger.info("EnsembleRetriever（BM25 + ChromaDB）の初期化が完了しました")
+        else:
+            # ChromaDBが利用できない場合はBM25のみを使用
+            ensemble_retriever = bm25_retriever
+            logger.warning("ChromaDBが利用できないため、BM25Retrieverのみを使用します")
 
         st.session_state.retriever = ensemble_retriever
         
         # 成功ログ
-        logger.info("Retrieverの初期化が完了しました")
+        if retriever:
+            logger.info("Retrieverの初期化が完了しました（BM25 + ベクトル検索）")
+        else:
+            logger.info("Retrieverの初期化が完了しました（BM25のみ）")
         
     except Exception as e:
         # エラーの詳細をログに記録
