@@ -94,6 +94,11 @@ def display_product(result):
         for line in product_lines:
             if ": " in line:
                 key, value = line.split(": ", 1)  # 最初の": "のみで分割
+                
+                # BOM文字や不要な文字を除去
+                key = key.strip().lstrip('\ufeff').strip()
+                value = value.strip()
+                
                 product[key] = value
                 logger.debug(f"解析成功: {key} = {value}")
             elif line.strip():  # 空行でない場合
