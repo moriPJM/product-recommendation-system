@@ -1,3 +1,4 @@
+
 """
 このファイルは、画面表示に特化した関数定義のファイルです。
 """
@@ -69,7 +70,10 @@ def display_product(result):
 
         # resultがリストの場合、最初の要素を取得
         if isinstance(result, list) and len(result) > 0:
+            logger.info(f"複数のドキュメントが返されました。件数: {len(result)}")
+            # 最初のドキュメント（最も関連性が高い）を使用
             product_content = result[0].page_content
+            logger.info(f"最初のドキュメントのpage_content: {product_content[:200]}...")
         elif hasattr(result, 'page_content'):
             product_content = result.page_content
         else:
@@ -83,13 +87,21 @@ def display_product(result):
         product_lines = product_content.split("\n")
         product = {}
         
+        # デバッグ：商品データの内容をログに記録
+        logger.info(f"商品データの行数: {len(product_lines)}")
+        logger.info(f"商品データの最初の5行: {product_lines[:5]}")
+        
         for line in product_lines:
             if ": " in line:
                 key, value = line.split(": ", 1)  # 最初の": "のみで分割
                 product[key] = value
+                logger.debug(f"解析成功: {key} = {value}")
             elif line.strip():  # 空行でない場合
                 logger.warning(f"解析できない行: {line}")
 
+        # デバッグ：解析された商品情報をログに記録
+        logger.info(f"解析された商品フィールド: {list(product.keys())}")
+        
         # 必須フィールドの確認
         required_fields = ['name', 'price', 'id']
         missing_fields = [field for field in required_fields if field not in product]
@@ -98,6 +110,8 @@ def display_product(result):
             st.error(f"必須項目が不足しています: {', '.join(missing_fields)}")
             st.write("**利用可能なフィールド:**")
             st.write(list(product.keys()))
+            st.write("**商品データの生の内容:**")
+            st.code(product_content[:500] + "..." if len(product_content) > 500 else product_content)
             return
 
         st.markdown("以下の商品をご提案いたします。")

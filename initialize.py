@@ -100,6 +100,12 @@ def initialize_retriever():
         loader = CSVLoader(ct.RAG_SOURCE_PATH, encoding="utf-8")
         docs = loader.load()
         
+        # デバッグ：CSVLoaderの出力形式を確認
+        logger.info(f"CSVから読み込まれたドキュメント数: {len(docs)}")
+        if docs:
+            logger.info(f"最初のドキュメントのpage_content（最初の200文字）: {docs[0].page_content[:200]}")
+            logger.info(f"最初のドキュメントのmetadata: {docs[0].metadata}")
+        
         # ドキュメントが空の場合のチェック
         if not docs:
             raise ValueError("CSVファイルからドキュメントを読み込めませんでした")
