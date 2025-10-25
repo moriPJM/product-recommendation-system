@@ -132,6 +132,7 @@ def initialize_retriever():
         retriever = None
         try:
             # Chromaデータベースの初期化（Streamlit Cloud対応）
+            db = None
             try:
                 # まず、より基本的な設定でChromaDBを初期化
                 import chromadb
@@ -159,19 +160,26 @@ def initialize_retriever():
                 logger.info("代替方法でChromaDBを初期化します")
                 
                 # フォールバック：最小限の設定でChromaDBを初期化
-                db = Chroma.from_documents(
-                    docs, 
-                    embedding=embeddings
-                )
+                try:
+                    db = Chroma.from_documents(
+                        docs, 
+                        embedding=embeddings
+                    )
+                except Exception as fallback_error:
+                    logger.error(f"フォールバックChromaDB初期化も失敗: {fallback_error}")
+                    db = None
             
-            retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
-            logger.info("ChromaDBベクトル検索の初期化が完了しました")
+            # dbが正常に作成された場合のみretrieverを作成
+            if db is not None:
+                retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
+                logger.info("ChromaDBベクトル検索の初期化が完了しました")
+            else:
+                logger.warning("ChromaDBの初期化に失敗しました")
             
         except Exception as vector_error:
             logger.error(f"ベクトル検索の初期化に失敗: {vector_error}")
             logger.info("BM25検索のみで続行します")
-
-        retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
+            retriever = None
 
         # BM25 Retrieverの初期化
         bm25_retriever = BM25Retriever.from_texts(
