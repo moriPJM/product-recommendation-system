@@ -95,35 +95,80 @@ def initialize_retriever():
     if "retriever" in st.session_state:
         return
     
-    loader = CSVLoader(ct.RAG_SOURCE_PATH, encoding="utf-8")
-    docs = loader.load()
+    try:
+        # CSVファイルの読み込み
+        loader = CSVLoader(ct.RAG_SOURCE_PATH, encoding="utf-8")
+        docs = loader.load()
+        
+        # ドキュメントが空の場合のチェック
+        if not docs:
+            raise ValueError("CSVファイルからドキュメントを読み込めませんでした")
 
-    # OSがWindowsの場合、Unicode正規化と、cp932（Windows用の文字コード）で表現できない文字を除去
-    for doc in docs:
-        doc.page_content = adjust_string(doc.page_content)
-        for key in doc.metadata:
-            doc.metadata[key] = adjust_string(doc.metadata[key])
+        # OSがWindowsの場合、Unicode正規化と、cp932（Windows用の文字コード）で表現できない文字を除去
+        for doc in docs:
+            doc.page_content = adjust_string(doc.page_content)
+            for key in doc.metadata:
+                doc.metadata[key] = adjust_string(doc.metadata[key])
 
-    docs_all = []
-    for doc in docs:
-        docs_all.append(doc.page_content)
+        docs_all = []
+        for doc in docs:
+            docs_all.append(doc.page_content)
 
-    embeddings = OpenAIEmbeddings()
-    db = Chroma.from_documents(docs, embedding=embeddings)
+        # OpenAI APIキーの確認
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEYが設定されていません。Streamlit CloudのSecretsで設定してください。")
 
-    retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
+        # OpenAI Embeddingsの初期化
+        embeddings = OpenAIEmbeddings()
+        
+        # Chromaデータベースの初期化（メモリ内で実行、永続化しない）
+        db = Chroma.from_documents(
+            docs, 
+            embedding=embeddings,
+            persist_directory=None  # メモリ内で実行
+        )
 
-    bm25_retriever = BM25Retriever.from_texts(
-        docs_all,
-        preprocess_func=utils.preprocess_func,
-        k=ct.TOP_K
-    )
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=[bm25_retriever, retriever],
-        weights=ct.RETRIEVER_WEIGHTS
-    )
+        retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
 
-    st.session_state.retriever = ensemble_retriever
+        # BM25 Retrieverの初期化
+        bm25_retriever = BM25Retriever.from_texts(
+            docs_all,
+            preprocess_func=utils.preprocess_func,
+            k=ct.TOP_K
+        )
+        
+        # Ensemble Retrieverの作成
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever, retriever],
+            weights=ct.RETRIEVER_WEIGHTS
+        )
+
+        st.session_state.retriever = ensemble_retriever
+        
+        # 成功ログ
+        logger.info("Retrieverの初期化が完了しました")
+        
+    except Exception as e:
+        # エラーの詳細をログに記録
+        error_msg = f"Retrieverの初期化中にエラーが発生しました: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        
+        # Streamlit Cloudでのデバッグ用に詳細なエラー情報を表示
+        st.error(f"初期化エラーの詳細: {str(e)}")
+        st.error("以下の項目を確認してください:")
+        st.error("1. OPENAI_API_KEYがStreamlit CloudのSecretsに設定されているか")
+        st.error("2. data/products.csvファイルが存在するか")
+        st.error("3. 必要なパッケージがすべてインストールされているか")
+        
+        # 環境情報の表示
+        st.write("**環境情報:**")
+        st.write(f"- Python version: {sys.version}")
+        st.write(f"- Current working directory: {os.getcwd()}")
+        st.write(f"- Files in data directory: {os.listdir('data') if os.path.exists('data') else 'data directory not found'}")
+        
+        # エラーを再発生させて上位で処理
+        raise
 
 
 def adjust_string(s):
